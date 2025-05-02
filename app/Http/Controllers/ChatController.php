@@ -20,17 +20,36 @@ class ChatController extends Controller
             ->map(function ($f) use ($userId) {
                 $friend = $f->friend;
 
-                // Get the last message between the user and this friend
-                $lastMessage = Message::where(function ($q) use ($userId, $friend) {
-                    $q->where('sender_id', $userId)->where('receiver_id', $friend->id);
-                })
+                // Get the last message between both users
+                $lastMessage = Message::with('media') // 👈 Load media
+                    ->where(function ($q) use ($userId, $friend) {
+                        $q->where('sender_id', $userId)->where('receiver_id', $friend->id);
+                    })
                     ->orWhere(function ($q) use ($userId, $friend) {
                         $q->where('sender_id', $friend->id)->where('receiver_id', $userId);
                     })
                     ->latest()
                     ->first();
 
-                // Count unread messages sent by the friend to the user
+                // Generate preview content
+                $preview = null;
+
+                if ($lastMessage) {
+                    if ($lastMessage->media) {
+                        $url = asset('storage/' . $lastMessage->media->file_path);
+                        $type = $lastMessage->media->type;
+
+                        $preview = match ($type) {
+                            'image' => "<i class='fas fa-image me-1'></i> Image",
+                            'video' => "<i class='fas fa-video me-1'></i> Video",
+                            default => "<i class='fas fa-file-alt me-1'></i> Document",
+                        };
+                    } else {
+                        $preview = $lastMessage->message;
+                    }
+                }
+
+                // Count unread messages
                 $unreadCount = Message::where('sender_id', $friend->id)
                     ->where('receiver_id', $userId)
                     ->where('is_read', false)
@@ -40,11 +59,13 @@ class ChatController extends Controller
                     'id' => $friend->id,
                     'name' => $friend->name,
                     'profile_picture' => $friend->profile_picture,
-                    'last_message' => $lastMessage ? $lastMessage->message : null,
-                    'last_message_time' => $lastMessage ? $lastMessage->created_at->diffForHumans() : null,
-                    'unread_count' => $unreadCount
+                    'last_message' => $preview,
+                    'last_message_time' => $lastMessage?->created_at->diffForHumans(),
+                    'unread_count' => $unreadCount,
+                    'last_message_sender_id' => $lastMessage?->sender_id,
                 ];
             });
+
 
         return view('dashboard', compact('friends'));
     }

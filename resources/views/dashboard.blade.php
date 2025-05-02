@@ -184,6 +184,32 @@
             height: 100vh;
         }
 
+        .attachment-menu {
+            background-color: #2a2f32;
+            color: white;
+            padding: 0.5rem 0;
+            width: 240px;
+            bottom: 60px;
+            left: 23rem;
+            z-index: 999;
+        }
+
+        .attachment-option {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            font-size: 15px;
+        }
+
+        .attachment-option i {
+            font-size: 16px;
+        }
+
+        .attachment-option:hover {
+            background-color: #3c454c;
+        }
 
         @media (max-width: 768px) {
             .chat-list-panel {
@@ -238,10 +264,31 @@
 
                             </div>
                             <div class="d-flex justify-content-between">
+                                @php
+                                    $isYou = $friend['last_message_sender_id'] == auth()->id();
+                                    $rawMessage = $friend['last_message'] ?? 'Start chatting';
+
+                                    // Detect media type
+                                    $preview = $rawMessage;
+
+                                    if (Str::contains($rawMessage, '<img')) {
+                                        $preview = '<i class="fas fa-image me-1"></i> Image';
+                                    } elseif (Str::contains($rawMessage, '<video')) {
+                                        $preview = '<i class="fas fa-video me-1"></i> Video';
+                                    } elseif (Str::contains($rawMessage, 'Download Document')) {
+                                        $preview = '<i class="fas fa-file-alt me-1"></i> Document';
+                                    } else {
+                                        // Truncate text (strip HTML just in case)
+                                        $plain = strip_tags($rawMessage);
+                                        $preview = Str::limit($plain, 40);
+                                    }
+
+                                @endphp
+
                                 <span id="preview-{{ $friend['id'] }}"
-                                    class="text-{{ $friend['unread_count'] > 0 ? 'success fw-bold' : 'white small' }}">
-                                    {{ $friend['last_message'] ?? 'Start chatting' }}
-                                </span>
+                                    class="text-{{ $friend['unread_count'] > 0 ? 'success fw-bold' : 'white small' }}">{{ $isYou ? 'You: ' : '' }}
+                                    {!! $friend['last_message'] !!}</span>
+
                                 @if ($friend['last_message_time'])
                                     <small id="time-{{ $friend['id'] }}"
                                         class="text-white">{{ $friend['last_message_time'] }}</small>
@@ -292,14 +339,27 @@
                 </div>
 
                 <!-- Hidden attachment options -->
-                <div id="attachmentOptions" class="d-none text-white p-3" style="background-color:#202c33;">
-                    <div class="mb-2 attachment-option" data-type="media"><i class="fas fa-image me-2"></i> Photos and
-                        Videos</div>
-                    <div class="mb-2 attachment-option" data-type="camera"><i class="fas fa-camera me-2"></i> Camera
+                <div id="attachmentOptions" class="d-none attachment-menu position-absolute rounded-3 shadow">
+                    <div class="attachment-option" data-type="media">
+                        <i class="fas fa-image me-2"></i> Photos & videos
                     </div>
-                    <div class="attachment-option" data-type="document"><i class="fas fa-file-alt me-2"></i> Document
+                    <div class="attachment-option" data-type="camera">
+                        <i class="fas fa-camera me-2"></i> Camera
+                    </div>
+                    <div class="attachment-option" data-type="document">
+                        <i class="fas fa-file-alt me-2"></i> Document
+                    </div>
+                    <div class="attachment-option" data-type="contact">
+                        <i class="fas fa-user me-2"></i> Contact
+                    </div>
+                    <div class="attachment-option" data-type="poll">
+                        <i class="fas fa-poll me-2"></i> Poll
+                    </div>
+                    <div class="attachment-option" data-type="drawing">
+                        <i class="fas fa-pen me-2"></i> Drawing
                     </div>
                 </div>
+
 
 
                 <div class="chat-input d-none align-items-center gap-2" id="chatInputBox">
@@ -506,6 +566,7 @@
         let currentUploadType = 'media';
 
         $('.attachment-option').on('click', function() {
+            $attachmentOptions.slideToggle().toggleClass('d-none');
             currentUploadType = $(this).data('type');
             let accept = '*/*';
 
@@ -595,10 +656,24 @@
             // If the chat is not currently open
             if (window.CURRENT_CHAT_ID != friendId) {
                 // Update last message preview
+                let previewText = '';
+                const msgLower = e.message.toLowerCase();
+
+                if (msgLower.includes('<img')) {
+                    previewText = '<i class="fas fa-image me-1"></i> Image';
+                } else if (msgLower.includes('<video')) {
+                    previewText = '<i class="fas fa-video me-1"></i> Video';
+                } else if (msgLower.includes('download document')) {
+                    previewText = '<i class="fas fa-file-alt me-1"></i> Document';
+                } else {
+                    previewText = e.message.length > 40 ? e.message.slice(0, 40) + '...' : e.message;
+                }
+
                 $(`#preview-${friendId}`)
-                    .html(e.message)
+                    .html(previewText)
                     .removeClass('text-white small')
                     .addClass('text-success fw-bold');
+
 
                 // Update time
                 $(`#time-${friendId}`).text(e.time);
@@ -620,11 +695,11 @@
 
             // Chat is open – append directly
             const bubble = `
-        <div class="message received">
-            ${e.message}
-            <div class="message-time">${e.time}</div>
-        </div>
-    `;
+                <div class="message received">
+                    ${e.message}
+                    <div class="message-time">${e.time}</div>
+                </div>
+            `;
             $('#messageContainer').append(bubble).scrollTop($('#messageContainer')[0].scrollHeight);
         });
     </script>
