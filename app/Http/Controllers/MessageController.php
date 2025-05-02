@@ -85,11 +85,15 @@ class MessageController extends Controller
         $userId = auth()->id();
         $file = $request->file('file');
 
+        $mime = $file->getMimeType();
+        $ext = $file->getClientOriginalExtension();
+
         $type = match (true) {
-            str_contains($file->getMimeType(), 'image') => 'image',
-            str_contains($file->getMimeType(), 'video') => 'video',
-            str_contains($file->getMimeType(), 'pdf') => 'document',
-            default => 'document'
+            str_contains($mime, 'image') => 'image',
+            str_contains($mime, 'video') => 'video',
+            str_contains($mime, 'audio') || in_array($ext, ['mp3', 'wav', 'webm']) => 'voice',
+            str_contains($mime, 'pdf') || str_contains($mime, 'text') => 'document',
+            default => 'document',
         };
 
         $path = $file->store("media", "public");
@@ -113,6 +117,16 @@ class MessageController extends Controller
         $preview = match ($type) {
             'image' => "<img src='$url' style='max-width:200px;' class='img-fluid rounded' />",
             'video' => "<video controls style='max-width:200px;'><source src='$url' /></video>",
+            'voice' => "
+                <div class='custom-audio-player d-flex align-items-center gap-2'>
+                    <button class='btn btn-sm btn-outline-light play-audio' data-src='$url'>
+                        <i class='fas fa-play'></i>
+                    </button>
+                    <span class='duration small text-white'>0:00</span>
+                    <audio class='d-none' src='$url'></audio>
+                </div>
+            ",
+
             default => "<a href='$url' class='text-white' target='_blank'>Download Document</a>"
         };
 

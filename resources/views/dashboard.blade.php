@@ -69,6 +69,43 @@
             /* Optional: ensure full opacity */
         }
 
+        #messageInput {
+            resize: none;
+            min-height: 40px;
+            line-height: 1.5;
+            overflow-y: hidden;
+        }
+
+
+        #messageInput::placeholder {
+            color: #bbb;
+            /* Change to any color you want */
+            opacity: 1;
+            /* Optional: ensure full opacity */
+        }
+
+        #messageInput:focus {
+            background-color: #2a3942;
+            outline: none;
+            color: white;
+            /* Change to any color you want */
+            opacity: 1;
+            /* Optional: ensure full opacity */
+        }
+
+        .message.bg-transparent {
+            background: transparent;
+            padding: 0;
+            box-shadow: none;
+        }
+
+        .custom-audio-player {
+            background-color: #2a3942;
+            padding: 8px 12px;
+            border-radius: 20px;
+            max-width: 250px;
+        }
+
 
         .chat-list {
             flex-grow: 1;
@@ -223,6 +260,12 @@
     </style>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <!-- Emoji Picker CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/emojionearea@3.4.2/dist/emojionearea.min.css">
+
+    <!-- Emoji Picker JS -->
+    <script src="https://cdn.jsdelivr.net/npm/emojionearea@3.4.2/dist/emojionearea.min.js"></script>
+
 </head>
 
 <body>
@@ -287,7 +330,7 @@
 
                                 <span id="preview-{{ $friend['id'] }}"
                                     class="text-{{ $friend['unread_count'] > 0 ? 'success fw-bold' : 'white small' }}">{{ $isYou ? 'You: ' : '' }}
-                                    {!! $friend['last_message'] !!}</span>
+                                    {!! $preview !!}</span>
 
                                 @if ($friend['last_message_time'])
                                     <small id="time-{{ $friend['id'] }}"
@@ -364,14 +407,25 @@
 
                 <div class="chat-input d-none align-items-center gap-2" id="chatInputBox">
                     <button type="button" id="attachBtn"><i class="fas fa-paperclip"></i></button>
-                    <button type="button"><i class="far fa-smile"></i></button>
+                    <button type="button" id="emojiBtn"><i class="far fa-smile"></i></button>
 
-                    <input type="text" id="messageInput" class="form-control" placeholder="Type a message">
+                    <textarea id="messageInput" class="form-control" placeholder="Type a message" rows="1" style="resize: none;"></textarea>
 
                     <button type="button" id="micBtn"><i class="fas fa-microphone"></i></button>
                     <button type="button" id="sendBtn" class="d-none"><i class="fas fa-paper-plane"></i></button>
+
+
                 </div>
 
+                <!-- Voice Recorder UI -->
+                <div id="voiceRecorderUI" class="d-none align-items-center justify-content-between px-3 py-2 w-100"
+                    style="background-color: #202c33; border-top: 1px solid #2a3942;">
+                    <button id="cancelRecording" class="btn text-danger"><i class="fas fa-trash"></i></button>
+                    <span class="text-white"><i class="fas fa-circle text-danger me-2"></i><span
+                            id="recordingTime">0:00</span></span>
+                    <button id="sendRecording" class="btn btn-success rounded"><i
+                            class="fas fa-paper-plane"></i></button>
+                </div>
 
             </div>
         </div>
@@ -390,6 +444,23 @@
             </div>
         </div>
     </div>
+
+    <!-- Camera Capture Modal -->
+    <div id="cameraModal"
+        class="d-none position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex align-items-center justify-content-center"
+        style="z-index: 9999;">
+        <div class="bg-black p-4 rounded text-white" style="width: 90%; max-width: 400px;">
+            <h5 class="mb-3">📷 Take a Picture</h5>
+            <video id="cameraStream" autoplay playsinline class="w-100 rounded mb-3"
+                style="height: 240px; object-fit: cover;"></video>
+            <canvas id="cameraCanvas" class="d-none"></canvas>
+            <div class="d-flex justify-content-between">
+                <button class="btn btn-secondary" id="cancelCamera">Cancel</button>
+                <button class="btn btn-success" id="capturePhoto">Capture</button>
+            </div>
+        </div>
+    </div>
+
 
     <!-- Hidden File Input -->
     <input type="file" id="fileInput" class="d-none">
@@ -418,11 +489,50 @@
             }).showToast();
         }
 
+        function renderMessageBubble(messageHtml, type, time, direction = 'sent') {
+            const isMedia = ['image', 'video', 'voice', 'document'].includes(type);
+
+            return `
+        <div class="message ${direction}${isMedia ? ' bg-transparent p-0 border-0' : ''}">
+            ${messageHtml}
+            <div class="message-time">${time}</div>
+        </div>
+    `;
+        }
+
+
         const $input = $('#messageInput');
         const $micBtn = $('#micBtn');
         const $sendBtn = $('#sendBtn');
         const $attachBtn = $('#attachBtn');
         const $attachmentOptions = $('#attachmentOptions');
+
+        $('#messageInput').on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                if (e.shiftKey) {
+                    // Allow new line
+                    return;
+                } else {
+                    e.preventDefault();
+                    $('#sendBtn').click();
+                }
+            }
+        });
+
+        $('#messageInput').on('input', function() {
+            $(this).css("height", "auto");
+
+            const maxHeight = 120; // set your max height in px
+            const newHeight = this.scrollHeight;
+
+            // Apply the lesser of scrollHeight or maxHeight
+            this.style.height = Math.min(newHeight, maxHeight) + 'px';
+
+            // Add scroll if content exceeds max height
+            this.style.overflowY = newHeight > maxHeight ? 'scroll' : 'hidden';
+        });
+
+
 
         // Typing toggle
         $input.on('input', function() {
@@ -452,19 +562,46 @@
                 minute: '2-digit'
             });
 
+
             const bubble = `
                 <div class="message sent">
-                    ${message}
+                    ${message.replace(/\n/g, '<br>')}
                     <div class="message-time">${time}</div>
                 </div>
             `;
+
             $('#messageContainer').append(bubble);
             requestAnimationFrame(() => {
                 $('#messageContainer').scrollTop($('#messageContainer')[0].scrollHeight);
             });
 
+            // ✅ Clear input
             $input.val('').trigger('input');
 
+            // ✅ Update preview and time
+            let previewText = '';
+            if (message.includes('<img')) {
+                previewText = '<i class="fas fa-image me-1"></i> Image';
+            } else if (message.includes('<video')) {
+                previewText = '<i class="fas fa-video me-1"></i> Video';
+            } else if (message.toLowerCase().includes('download document')) {
+                previewText = '<i class="fas fa-file-alt me-1"></i> Document';
+            } else if (res.preview.includes('<audio')) {
+                previewText = 'You: <i class="fas fa-microphone me-1"></i> Voice Note';
+            } else {
+                previewText = message.length > 40 ? message.slice(0, 40) + '...' : message;
+                previewText = 'You: ' + previewText;
+            }
+
+            $(`#preview-${receiverId}`)
+                .html(previewText)
+                .removeClass('text-success fw-bold')
+                .addClass('text-white small');
+
+            $(`#time-${receiverId}`).text(time);
+            $(`#badge-${receiverId}`).addClass('d-none');
+
+            // ✅ Send to server
             $.post('/send-message', {
                 _token: $('meta[name="csrf-token"]').attr('content'),
                 message,
@@ -473,6 +610,7 @@
                 showToast('Message failed to send', true);
             });
         });
+
 
 
         $('#startChatForm').on('submit', function(e) {
@@ -543,13 +681,14 @@
                             'received';
                         const bubble = `
                     <div class="message ${type}">
-                        ${msg.message}
+                        ${msg.message.replace(/\n/g, '<br>')}
                         <div class="message-time">${msg.time}</div>
                     </div>`;
                         $('#messageContainer').append(bubble);
                     });
 
                     $('#messageContainer').scrollTop($('#messageContainer')[0].scrollHeight);
+                    $('#messageInput').focus();
                 },
                 error: function() {
                     $('#messageContainer').html(
@@ -573,7 +712,12 @@
             if (currentUploadType === 'media') accept = 'image/*,video/*';
             if (currentUploadType === 'document') accept = '.pdf,.doc,.docx,.txt';
 
-            $('#fileInput').attr('accept', accept).click();
+            if (currentUploadType === 'media' || currentUploadType === 'document') {
+                $('#fileInput').attr('accept', accept).click();
+            } else if (currentUploadType === 'camera') {
+                launchCamera()
+            }
+
         });
 
         $('#fileInput').on('change', function() {
@@ -653,38 +797,38 @@
         channel.bind('new-message', function(e) {
             const friendId = e.sender_id;
 
-            // If the chat is not currently open
+            // Generate preview text
+            let previewText = '';
+            const msgLower = e.message.toLowerCase();
+
+            if (msgLower.includes('<img')) {
+                previewText = '<i class="fas fa-image me-1"></i> Image';
+            } else if (msgLower.includes('<video')) {
+                previewText = '<i class="fas fa-video me-1"></i> Video';
+            } else if (msgLower.includes('download document')) {
+                previewText = '<i class="fas fa-file-alt me-1"></i> Document';
+            } else if (msgLower.includes('<audio')) {
+                previewText = '<i class="fas fa-microphone me-1"></i> Voice Note';
+            } else {
+                previewText = e.message.length > 40 ? e.message.slice(0, 40) + '...' : e.message;
+            }
+
+            // Update time
+            $(`#time-${friendId}`).text(e.time);
+
+            // If the chat is NOT open
             if (window.CURRENT_CHAT_ID != friendId) {
-                // Update last message preview
-                let previewText = '';
-                const msgLower = e.message.toLowerCase();
-
-                if (msgLower.includes('<img')) {
-                    previewText = '<i class="fas fa-image me-1"></i> Image';
-                } else if (msgLower.includes('<video')) {
-                    previewText = '<i class="fas fa-video me-1"></i> Video';
-                } else if (msgLower.includes('download document')) {
-                    previewText = '<i class="fas fa-file-alt me-1"></i> Document';
-                } else {
-                    previewText = e.message.length > 40 ? e.message.slice(0, 40) + '...' : e.message;
-                }
-
+                // Highlight new message
                 $(`#preview-${friendId}`)
                     .html(previewText)
                     .removeClass('text-white small')
                     .addClass('text-success fw-bold');
 
-
-                // Update time
-                $(`#time-${friendId}`).text(e.time);
-
-                // Update or show unread badge
                 const $badge = $(`#badge-${friendId}`);
                 if ($badge.length) {
                     let count = parseInt($badge.text()) || 0;
                     $badge.text(count + 1).removeClass('d-none');
                 } else {
-                    // If badge doesn't exist (just in case)
                     $(`#chat-item-${friendId} .name`).append(
                         `<span id="badge-${friendId}" class="badge bg-success ms-2">1</span>`
                     );
@@ -693,15 +837,221 @@
                 return;
             }
 
-            // Chat is open – append directly
+            // ✅ Chat is open – show message and reset preview style
             const bubble = `
                 <div class="message received">
-                    ${e.message}
+                    ${e.message.replace(/\n/g, '<br>')}
                     <div class="message-time">${e.time}</div>
                 </div>
             `;
             $('#messageContainer').append(bubble).scrollTop($('#messageContainer')[0].scrollHeight);
+
+            // Reset preview style to normal
+            $(`#preview-${friendId}`)
+                .html(previewText)
+                .removeClass('text-success fw-bold')
+                .addClass('text-white small');
+
+            // Hide unread badge
+            $(`#badge-${friendId}`).addClass('d-none');
         });
+
+
+        let videoStream = null;
+
+        function launchCamera() {
+            $('#cameraModal').removeClass('d-none');
+            const video = document.getElementById('cameraStream');
+            navigator.mediaDevices.getUserMedia({
+                    video: true
+                })
+                .then(stream => {
+                    videoStream = stream;
+                    video.srcObject = stream;
+                })
+                .catch(() => {
+                    showToast("Cannot access camera", true);
+                    $('#cameraModal').addClass('d-none');
+                });
+        };
+
+        $('#cancelCamera').on('click', function() {
+            stopCamera();
+            $('#cameraModal').addClass('d-none');
+        });
+
+        $('#capturePhoto').on('click', function() {
+            const canvas = document.getElementById('cameraCanvas');
+            const video = document.getElementById('cameraStream');
+            const context = canvas.getContext('2d');
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(function(blob) {
+                stopCamera();
+                $('#cameraModal').addClass('d-none');
+
+                // Preview image
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    $('#filePreview').html(
+                        `<img src="${e.target.result}" class="img-fluid rounded" />`);
+                    $('#filePreviewPopup').removeClass('d-none');
+                    selectedFile = new File([blob], `photo-${Date.now()}.png`, {
+                        type: "image/png"
+                    });
+                };
+                reader.readAsDataURL(blob);
+            }, 'image/png');
+        });
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+        }
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingInterval;
+        let seconds = 0;
+
+        // Format time like 0:03
+        function formatTime(s) {
+            const m = Math.floor(s / 60);
+            const ss = s % 60;
+            return `${m}:${ss.toString().padStart(2, '0')}`;
+        }
+
+        // Start recording
+        $('#micBtn').on('click', async function() {
+            $('#chatInputBox').addClass('d-none');
+            $('#voiceRecorderUI').removeClass('d-none');
+            $('#recordingTime').text('0:00');
+
+            seconds = 0;
+            audioChunks = [];
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (e) => {
+                    audioChunks.push(e.data);
+                };
+
+                mediaRecorder.start();
+
+                recordingInterval = setInterval(() => {
+                    seconds++;
+                    $('#recordingTime').text(formatTime(seconds));
+                }, 1000);
+            } catch (err) {
+                showToast('Unable to access microphone', true);
+                $('#chatInputBox').removeClass('d-none');
+                $('#voiceRecorderUI').addClass('d-none');
+            }
+        });
+
+        // Cancel recording
+        $('#cancelRecording').on('click', function() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            clearInterval(recordingInterval);
+            $('#voiceRecorderUI').addClass('d-none');
+            $('#chatInputBox').removeClass('d-none');
+        });
+
+        // Send voice note
+        $('#sendRecording').on('click', function() {
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+            mediaRecorder.onstop = function() {
+                const blob = new Blob(audioChunks, {
+                    type: 'audio/webm'
+                });
+
+                if (blob.size === 0) {
+                    showToast("Voice note is empty!", true);
+                    return;
+                }
+
+                const file = new File([blob], `voice_${Date.now()}.webm`, {
+                    type: 'audio/webm'
+                });
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('receiver_id', window.CURRENT_CHAT_ID);
+
+                $.ajax({
+                    url: '/send-media',
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    },
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(res) {
+                        const bubble = `
+                    <div class="message sent">
+                        ${res.preview}
+                        <div class="message-time">${res.time}</div>
+                    </div>
+                `;
+                        $('#messageContainer').append(bubble).scrollTop($('#messageContainer')[0]
+                            .scrollHeight);
+                    },
+                    error: function() {
+                        showToast('Failed to upload voice note', true);
+                    },
+                    complete: function() {
+                        $('#voiceRecorderUI').addClass('d-none');
+                        $('#chatInputBox').removeClass('d-none');
+                    }
+                });
+            };
+
+            mediaRecorder.stop(); // triggers onstop callback
+            clearInterval(recordingInterval);
+        });
+        $(document).on('click', '.play-audio', function() {
+            const $btn = $(this);
+            const $audio = $btn.siblings('audio')[0];
+            const $icon = $btn.find('i');
+            const $duration = $btn.siblings('.duration');
+
+            if ($audio.paused) {
+                $('audio').each((i, el) => el.pause()); // Pause others
+                $audio.play();
+                $icon.removeClass('fa-play').addClass('fa-pause');
+
+                $audio.ontimeupdate = () => {
+                    const min = Math.floor($audio.currentTime / 60);
+                    const sec = Math.floor($audio.currentTime % 60);
+                    $duration.text(`${min}:${sec.toString().padStart(2, '0')}`);
+                };
+
+                $audio.onended = () => {
+                    $icon.removeClass('fa-pause').addClass('fa-play');
+                };
+            } else {
+                $audio.pause();
+                $icon.removeClass('fa-pause').addClass('fa-play');
+            }
+        });
+
+        setTimeout(() => {
+            $('#messageContainer').scrollTop($('#messageContainer')[0].scrollHeight);
+        }, 100);
     </script>
 </body>
 
