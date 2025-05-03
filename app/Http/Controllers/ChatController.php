@@ -42,7 +42,7 @@ class ChatController extends Controller
                         $preview = match ($type) {
                             'image' => "<i class='fas fa-image me-1'></i> Image",
                             'video' => "<i class='fas fa-video me-1'></i> Video",
-                            'voice' => "<i class='fas fa-microphone me-1'></i> Voice Note",
+                            'audio' => "<i class='fas fa-microphone me-1'></i> Voice Note",
                             default => "<i class='fas fa-file-alt me-1'></i> Document",
                         };
                     } else {

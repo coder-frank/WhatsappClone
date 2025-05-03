@@ -314,18 +314,20 @@
                                     // Detect media type
                                     $preview = $rawMessage;
 
-                                    if (Str::contains($rawMessage, '<img')) {
-                                        $preview = '<i class="fas fa-image me-1"></i> Image';
-                                    } elseif (Str::contains($rawMessage, '<video')) {
-                                        $preview = '<i class="fas fa-video me-1"></i> Video';
-                                    } elseif (Str::contains($rawMessage, 'Download Document')) {
-                                        $preview = '<i class="fas fa-file-alt me-1"></i> Document';
-                                    } else {
-                                        // Truncate text (strip HTML just in case)
-                                        $plain = strip_tags($rawMessage);
-                                        $preview = Str::limit($plain, 40);
-                                    }
-
+                                    // if (Str::contains($rawMessage, '<img')) {
+                                    //     $preview = '<i class="fas fa-image me-1"></i> Image';
+                                    // } elseif (Str::contains($rawMessage, '<video')) {
+                                    //     $preview = '<i class="fas fa-video me-1"></i> Video';
+                                    // } elseif (Str::contains($rawMessage, '<audio')) {
+                                    //     $preview = '<i class="fas fa-microphone me-1"></i> Voice Note';
+                                    // } elseif (Str::contains($rawMessage, 'Download Document')) {
+                                    //     $preview = '<i class="fas fa-file-alt me-1"></i> Document';
+                                    // } else {
+                                    //     // Truncate text (strip HTML just in case)
+                                    //     $plain = strip_tags($rawMessage);
+                                    //     $preview = Str::limit($plain, 40);
+                                    // }
+                                    
                                 @endphp
 
                                 <span id="preview-{{ $friend['id'] }}"
@@ -465,7 +467,7 @@
     <!-- Hidden File Input -->
     <input type="file" id="fileInput" class="d-none">
 
-    <script>
+    {{-- <script>
         const AUTH_ID = {{ auth()->id() }};
 
         function showChatWindow() {
@@ -493,11 +495,11 @@
             const isMedia = ['image', 'video', 'voice', 'document'].includes(type);
 
             return `
-        <div class="message ${direction}${isMedia ? ' bg-transparent p-0 border-0' : ''}">
-            ${messageHtml}
-            <div class="message-time">${time}</div>
-        </div>
-    `;
+                <div class="message ${direction}${isMedia ? ' bg-transparent p-0 border-0' : ''}">
+                    ${messageHtml}
+                    <div class="message-time">${time}</div>
+                </div>
+            `;
         }
 
 
@@ -1031,6 +1033,586 @@
 
             if ($audio.paused) {
                 $('audio').each((i, el) => el.pause()); // Pause others
+                $audio.play();
+                $icon.removeClass('fa-play').addClass('fa-pause');
+
+                $audio.ontimeupdate = () => {
+                    const min = Math.floor($audio.currentTime / 60);
+                    const sec = Math.floor($audio.currentTime % 60);
+                    $duration.text(`${min}:${sec.toString().padStart(2, '0')}`);
+                };
+
+                $audio.onended = () => {
+                    $icon.removeClass('fa-pause').addClass('fa-play');
+                };
+            } else {
+                $audio.pause();
+                $icon.removeClass('fa-pause').addClass('fa-play');
+            }
+        });
+
+        setTimeout(() => {
+            $('#messageContainer').scrollTop($('#messageContainer')[0].scrollHeight);
+        }, 100);
+    </script> --}}
+
+    <script>
+        const AUTH_ID = {{ auth()->id() }};
+        let isLoading = false;
+
+        function toggleLoading(state) {
+            isLoading = state;
+            $('button').prop('disabled', state);
+        }
+
+        function showChatWindow() {
+            $('#chatListPanel').addClass('d-none');
+            $('#chatWindowPanel').removeClass('d-none');
+        }
+
+        function showChatList() {
+            $('#chatWindowPanel').addClass('d-none');
+            $('#chatListPanel').removeClass('d-none');
+        }
+
+        function showToast(message, isError = false) {
+            Toastify({
+                text: message,
+                duration: 3000,
+                gravity: "top",
+                position: "center",
+                backgroundColor: isError ? "#dc3545" : "#198754",
+                close: true
+            }).showToast();
+        }
+
+        function renderMessageBubble(messageHtml, type, time, direction = 'sent') {
+            const isMedia = ['image', 'video', 'voice', 'audio', 'document'].includes(type);
+            return `
+                <div class="message ${direction}${isMedia ? ' bg-transparent p-0 border-0' : ''}">
+                    ${messageHtml}
+                    <div class="message-time">${time}</div>
+                </div>
+            `;
+        }
+
+        const $input = $('#messageInput');
+        const $micBtn = $('#micBtn');
+        const $sendBtn = $('#sendBtn');
+        const $attachBtn = $('#attachBtn');
+        const $attachmentOptions = $('#attachmentOptions');
+
+        $('#messageInput').on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                if (e.shiftKey) {
+                    return;
+                } else {
+                    e.preventDefault();
+                    if (!isLoading) $('#sendBtn').click();
+                }
+            }
+        });
+
+        $('#messageInput').on('input', function() {
+            $(this).css("height", "auto");
+            const maxHeight = 120;
+            const newHeight = this.scrollHeight;
+            this.style.height = Math.min(newHeight, maxHeight) + 'px';
+            this.style.overflowY = newHeight > maxHeight ? 'scroll' : 'hidden';
+
+            if ($(this).val().trim() !== '') {
+                $micBtn.addClass('d-none');
+                $sendBtn.removeClass('d-none');
+            } else {
+                $micBtn.removeClass('d-none');
+                $sendBtn.addClass('d-none');
+            }
+        });
+
+        $attachBtn.on('click', function() {
+            if (isLoading) return;
+            $attachmentOptions.slideToggle().toggleClass('d-none');
+        });
+
+        $sendBtn.on('click', function() {
+            if (isLoading) return;
+
+            const message = $input.val().trim();
+            const receiverId = window.CURRENT_CHAT_ID;
+            if (!message || !receiverId) return;
+
+            const now = new Date();
+            const time = now.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            const bubble = renderMessageBubble(message.replace(/\n/g, '<br>'), 'text', time, 'sent');
+
+            $('#messageContainer').append(bubble);
+            requestAnimationFrame(() => {
+                $('#messageContainer').scrollTop($('#messageContainer')[0].scrollHeight);
+            });
+
+            $input.val('').trigger('input');
+            toggleLoading(true);
+            $sendBtn.html('<i class="fas fa-spinner fa-spin"></i>');
+
+            $.post('/send-message', {
+                _token: $('meta[name="csrf-token"]').attr('content'),
+                message,
+                receiver_id: receiverId
+            }).fail(() => {
+                showToast('Message failed to send', true);
+            }).always(() => {
+                toggleLoading(false);
+                $sendBtn.html('<i class="fas fa-paper-plane"></i>');
+            });
+        });
+
+        $('#startChatForm').on('submit', function(e) {
+            e.preventDefault();
+            if (isLoading) return;
+
+            const target = $('#contactInput').val();
+            const $submitBtn = $(this).find('button[type="submit"]');
+
+            $submitBtn.html('<i class="fas fa-spinner fa-spin"></i>');
+            toggleLoading(true);
+
+            $.ajax({
+                url: '/start-chat',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                data: {
+                    target,
+                    message: 'Hi 👋'
+                },
+                success: (res) => showToast("Chat started successfully!"),
+                error: (err) => showToast(err.responseJSON?.message || "Failed to start chat.", true),
+                complete: () => {
+                    toggleLoading(false);
+                    $submitBtn.html('<i class="fas fa-paper-plane"></i>');
+                }
+            });
+        });
+
+        $('.chat-item').on('click', function() {
+            $("#messageContainer").removeClass('d-none');
+            if (isLoading) return;
+
+            const friendId = $(this).data('friendid');
+            const name = $(this).find('.name').text();
+            const avatar = $(this).find('img').attr('src');
+            const $chatItem = $(this);
+            const $messageContainer = $('#messageContainer');
+
+            // UI setup
+            $('#chatName').text(name);
+            $('#chatAvatar').attr('src', avatar);
+            $('#chatHeader').show();
+            $('#chatPlaceholder').addClass('d-none');
+            $('#messageContainer').removeClass('d-none').html('');
+            $('#chatInputBox').removeClass('d-none');
+
+            $chatItem.addClass('loading');
+            $messageContainer.html('<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i></div>');
+            toggleLoading(true);
+
+            $(`#badge-${friendId}`).addClass('d-none');
+            $(`#preview-${friendId}`).removeClass('text-success fw-bold').addClass('text-white small');
+
+            $('#chatName').text($chatItem.find('.name').text());
+            $('#chatAvatar').attr('src', $chatItem.find('img').attr('src'));
+            $('#chatHeader, #chatInputBox').show();
+            $('#chatPlaceholder').addClass('d-none');
+
+            $.ajax({
+                url: `/messages/${friendId}`,
+                method: 'GET',
+                success: (data) => {
+                    $messageContainer.html(data.length ? '' :
+                        '<p class="text-center text-white">No messages yet.</p>');
+
+                    const imageLoadPromises = [];
+
+                    data.forEach(msg => {
+                        const type = msg.sender_id === AUTH_ID ? 'sent' : 'received';
+                        const html = renderMessageBubble(msg.message.replace(/\n/g, '<br>'),
+                            'text', msg.time, type);
+
+                        const $bubble = $(html);
+                        $messageContainer.append($bubble);
+
+                        // Track image load promises
+                        $bubble.find('img').each(function() {
+                            const img = this;
+                            const promise = new Promise((resolve) => {
+                                if (img.complete)
+                        return resolve(); // Already cached
+                                img.onload = img.onerror = resolve;
+                            });
+                            imageLoadPromises.push(promise);
+                        });
+                    });
+
+                    // Wait for all images (if any) to load
+                    Promise.all(imageLoadPromises).then(() => {
+                        $messageContainer.scrollTop($messageContainer[0].scrollHeight);
+                        toggleLoading(false);
+                        $chatItem.removeClass('loading');
+                        window.CURRENT_CHAT_ID = friendId;
+                        $("#chatInputBox").removeClass('d-none');
+                        $('#messageInput').focus();
+                    });
+                },
+
+                error: () => {
+                    $messageContainer.html(
+                        '<p class="text-danger text-center">Failed to load messages</p>');
+                },
+                complete: () => {
+                    toggleLoading(false);
+                    $chatItem.removeClass('loading');
+                    window.CURRENT_CHAT_ID = friendId;
+                    $("#chatInputBox").removeClass('d-none');
+                    $('#messageInput').focus();
+                }
+            });
+        });
+
+        let selectedFile = null;
+        let currentUploadType = 'media';
+
+        $('.attachment-option').on('click', function() {
+            if (isLoading) return;
+
+            $attachmentOptions.slideToggle().toggleClass('d-none');
+            currentUploadType = $(this).data('type');
+            let accept = '*/*';
+
+            if (currentUploadType === 'media') accept = 'image/*,video/*';
+            if (currentUploadType === 'document') accept = '.pdf,.doc,.docx,.txt';
+
+            if (currentUploadType === 'media' || currentUploadType === 'document') {
+                $('#fileInput').attr('accept', accept).click();
+            } else if (currentUploadType === 'camera') {
+                launchCamera();
+            }
+        });
+
+        $('#fileInput').on('change', function() {
+            const file = this.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+            const preview = $('#filePreview');
+            preview.html('');
+
+            const type = file.type;
+            if (type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.html(`<img src="${e.target.result}" class="img-fluid rounded" />`);
+                };
+                reader.readAsDataURL(file);
+            } else if (type.startsWith('video/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.html(`<video controls class="w-100"><source src="${e.target.result}" /></video>`);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                preview.html(`<p><i class="fas fa-file-alt fa-2x me-2"></i>${file.name}</p>`);
+            }
+
+            $('#filePreviewPopup').removeClass('d-none');
+        });
+
+        $('#confirmSendFile').on('click', function() {
+            if (!selectedFile || !window.CURRENT_CHAT_ID || isLoading) return;
+
+            const $confirmBtn = $(this);
+            $confirmBtn.html('<i class="fas fa-spinner fa-spin"></i>').prop('disabled', true);
+            toggleLoading(true);
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('receiver_id', window.CURRENT_CHAT_ID);
+
+            $.ajax({
+                url: '/send-media',
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(res) {
+                    const bubble = `
+                        <div class="message sent">
+                            ${res.preview}
+                            <div class="message-time">${res.time}</div>
+                        </div>
+                    `;
+                    $('#messageContainer').append(bubble).scrollTop($('#messageContainer')[0]
+                        .scrollHeight);
+                },
+                error: function() {
+                    showToast('Failed to upload file', true);
+                },
+                complete: function() {
+                    $confirmBtn.html('Send').prop('disabled', false);
+                    toggleLoading(false);
+                    $('#filePreviewPopup').addClass('d-none');
+                    selectedFile = null;
+                    $('#fileInput').val('');
+                }
+            });
+        });
+
+        Pusher.logToConsole = true;
+        var pusher = new Pusher('1e35cab1f9e93844a8dc', {
+            cluster: 'eu'
+        });
+        var channel = pusher.subscribe('chat.{{ auth()->id() }}');
+
+        channel.bind('new-message', function(e) {
+            const friendId = e.sender_id;
+            let previewText = '';
+            const msgLower = e.message.toLowerCase();
+
+            if (msgLower.includes('<img')) {
+                previewText = '<i class="fas fa-image me-1"></i> Image';
+            } else if (msgLower.includes('<video')) {
+                previewText = '<i class="fas fa-video me-1"></i> Video';
+            } else if (msgLower.includes('download document')) {
+                previewText = '<i class="fas fa-file-alt me-1"></i> Document';
+            } else if (msgLower.includes('<audio')) {
+                previewText = '<i class="fas fa-microphone me-1"></i> Voice Note';
+            } else {
+                previewText = e.message.length > 40 ? e.message.slice(0, 40) + '...' : e.message;
+            }
+
+            $(`#time-${friendId}`).text(e.time);
+
+            if (window.CURRENT_CHAT_ID != friendId) {
+                $(`#preview-${friendId}`)
+                    .html(previewText)
+                    .removeClass('text-white small')
+                    .addClass('text-success fw-bold');
+
+                const $badge = $(`#badge-${friendId}`);
+                if ($badge.length) {
+                    let count = parseInt($badge.text()) || 0;
+                    $badge.text(count + 1).removeClass('d-none');
+                } else {
+                    $(`#chat-item-${friendId} .name`).append(
+                        `<span id="badge-${friendId}" class="badge bg-success ms-2">1</span>`
+                    );
+                }
+                return;
+            }
+
+            const bubble = `
+                <div class="message received">
+                    ${e.message.replace(/\n/g, '<br>')}
+                    <div class="message-time">${e.time}</div>
+                </div>
+            `;
+            $('#messageContainer').append(bubble).scrollTop($('#messageContainer')[0].scrollHeight);
+
+            $(`#preview-${friendId}`)
+                .html(previewText)
+                .removeClass('text-success fw-bold')
+                .addClass('text-white small');
+
+            $(`#badge-${friendId}`).addClass('d-none');
+        });
+
+        let videoStream = null;
+
+        function launchCamera() {
+            if (isLoading) return;
+
+            $('#cameraModal').removeClass('d-none');
+            const video = document.getElementById('cameraStream');
+            navigator.mediaDevices.getUserMedia({
+                    video: true
+                })
+                .then(stream => {
+                    videoStream = stream;
+                    video.srcObject = stream;
+                })
+                .catch(() => {
+                    showToast("Cannot access camera", true);
+                    $('#cameraModal').addClass('d-none');
+                });
+        }
+
+        $('#cancelCamera').on('click', function() {
+            stopCamera();
+            $('#cameraModal').addClass('d-none');
+        });
+
+        $('#capturePhoto').on('click', function() {
+            if (isLoading) return;
+
+            const canvas = document.getElementById('cameraCanvas');
+            const video = document.getElementById('cameraStream');
+            const context = canvas.getContext('2d');
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(function(blob) {
+                stopCamera();
+                $('#cameraModal').addClass('d-none');
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    $('#filePreview').html(
+                        `<img src="${e.target.result}" class="img-fluid rounded" />`);
+                    $('#filePreviewPopup').removeClass('d-none');
+                    selectedFile = new File([blob], `photo-${Date.now()}.png`, {
+                        type: "image/png"
+                    });
+                };
+                reader.readAsDataURL(blob);
+            }, 'image/png');
+        });
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+        }
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingInterval;
+        let seconds = 0;
+
+        function formatTime(s) {
+            const m = Math.floor(s / 60);
+            const ss = s % 60;
+            return `${m}:${ss.toString().padStart(2, '0')}`;
+        }
+
+        $('#micBtn').on('click', async function() {
+            if (isLoading) return;
+
+            $('#chatInputBox').addClass('d-none');
+            $('#voiceRecorderUI').removeClass('d-none');
+            $('#recordingTime').text('0:00');
+
+            seconds = 0;
+            audioChunks = [];
+            toggleLoading(true);
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (e) => {
+                    audioChunks.push(e.data);
+                };
+
+                mediaRecorder.start();
+                recordingInterval = setInterval(() => {
+                    seconds++;
+                    $('#recordingTime').text(formatTime(seconds));
+                }, 1000);
+                toggleLoading(false);
+            } catch (err) {
+                showToast('Unable to access microphone', true);
+                $('#chatInputBox').removeClass('d-none');
+                $('#voiceRecorderUI').addClass('d-none');
+                toggleLoading(false);
+            }
+        });
+
+        $('#cancelRecording').on('click', function() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            clearInterval(recordingInterval);
+            $('#voiceRecorderUI').addClass('d-none');
+            $('#chatInputBox').removeClass('d-none');
+        });
+
+        $('#sendRecording').on('click', function() {
+            if (!mediaRecorder || mediaRecorder.state === 'inactive' || isLoading) return;
+
+            const $sendRecordBtn = $(this);
+            $sendRecordBtn.html('<i class="fas fa-spinner fa-spin"></i>').prop('disabled', true);
+            toggleLoading(true);
+
+            mediaRecorder.onstop = function() {
+                const blob = new Blob(audioChunks, {
+                    type: 'audio/webm'
+                });
+
+                if (blob.size === 0) {
+                    showToast("Voice note is empty!", true);
+                    return;
+                }
+
+                const file = new File([blob], `voice_${Date.now()}.webm`, {
+                    type: 'audio/webm'
+                });
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('receiver_id', window.CURRENT_CHAT_ID);
+
+                $.ajax({
+                    url: '/send-media',
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    },
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(res) {
+                        const bubble = `
+                            <div class="message sent">
+                                ${res.preview}
+                                <div class="message-time">${res.time}</div>
+                            </div>
+                        `;
+                        $('#messageContainer').append(bubble).scrollTop($('#messageContainer')[0]
+                            .scrollHeight);
+                    },
+                    error: function() {
+                        showToast('Failed to upload voice note', true);
+                    },
+                    complete: function() {
+                        $sendRecordBtn.html('<i class="fas fa-check"></i>').prop('disabled', false);
+                        toggleLoading(false);
+                        $('#voiceRecorderUI').addClass('d-none');
+                        $('#chatInputBox').removeClass('d-none');
+                    }
+                });
+            };
+            mediaRecorder.stop();
+            clearInterval(recordingInterval);
+        });
+
+        $(document).on('click', '.play-audio', function() {
+            const $btn = $(this);
+            const $audio = $btn.siblings('audio')[0];
+            const $icon = $btn.find('i');
+            const $duration = $btn.siblings('.duration');
+
+            if ($audio.paused) {
+                $('audio').each((i, el) => el.pause());
                 $audio.play();
                 $icon.removeClass('fa-play').addClass('fa-pause');
 
